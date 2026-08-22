@@ -1,3 +1,8 @@
 node_modules/
 barnaloppan
 __pycache__/
+
+# Credentials - never commit these (this repo is public)
+.env
+.env.*
+!.env.example

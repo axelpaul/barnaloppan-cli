@@ -22,9 +22,7 @@ export async function loadSession(): Promise<Session> {
 			throw new Error("invalid session");
 		return { cookie: session.cookie, bookingId };
 	} catch {
-		throw new Error(
-			'Not authenticated. Run "barnaloppan auth login --from-1password" first.',
-		);
+		throw new Error('Not authenticated. Run "barnaloppan auth login" first.');
 	}
 }
 

@@ -46,7 +46,7 @@ async function checked(response: Response, context: string): Promise<Response> {
 	if (response.ok) return response;
 	if (response.status === 401 || response.status === 403)
 		throw new Error(
-			'Barnaloppan session expired. Run "barnaloppan auth login --from-1password".',
+			'Barnaloppan session expired. Run "barnaloppan auth login".',
 		);
 	throw new Error(`${context} failed: HTTP ${response.status}`);
 }
@@ -146,10 +146,18 @@ export async function getProductsHtml(): Promise<string> {
 	return response.text();
 }
 
-export async function uploadImage(path: string): Promise<string> {
+// The site names the temp upload `<userId>-<temp_id>.jpg`. Without a temp_id
+// every upload in a batch lands on the same path and overwrites the last, so
+// only one product ends up with a real image file. The temp_id must match the
+// one used for this product in the saveBooking payload.
+export async function uploadImage(
+	path: string,
+	tempId: string,
+): Promise<string> {
 	const bytes = await readFile(path);
 	const type = path.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
 	const form = new FormData();
+	form.set("temp_id", tempId);
 	form.set(
 		"image",
 		new File([bytes], path.split("/").pop() || "image.jpg", { type }),
