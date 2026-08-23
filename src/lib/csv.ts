@@ -147,3 +147,89 @@ export async function readProductsCsv(path: string): Promise<CsvProduct[]> {
 	}
 	return products;
 }
+
+export type ImageUpdateRow = { id: number; photo: string };
+
+// id,photo - the listing is addressed by ID because names can repeat.
+export async function readImageUpdatesCsv(
+	path: string,
+): Promise<ImageUpdateRow[]> {
+	const rows = parseCsv((await readFile(path, "utf8")).replace(/^\uFEFF/, ""));
+	const firstRow = rows[0];
+	if (!firstRow || rows.length < 2)
+		throw new Error("CSV needs a header and at least one row.");
+	const header = firstRow.map((field) => field.trim().toLowerCase());
+	const idColumn = header.indexOf("id");
+	const photoColumn = columnIndex(header, COLUMNS.photo);
+	if (idColumn === -1 || photoColumn === -1)
+		throw new Error('CSV needs an "id" column and a "photo" column.');
+	const csvDirectory = dirname(resolve(path));
+	const updates: ImageUpdateRow[] = [];
+	const seen = new Set<number>();
+	for (let row = 1; row < rows.length; row += 1) {
+		const values = rows[row];
+		if (!values || values.every((field) => !field.trim())) continue;
+		const id = Number(values[idColumn]?.trim());
+		if (!Number.isInteger(id) || id < 1)
+			throw new Error(`Row ${row + 1}: id must be a product ID.`);
+		if (seen.has(id))
+			throw new Error(`Row ${row + 1}: ID ${id} appears more than once.`);
+		seen.add(id);
+		const value = values[photoColumn]?.trim();
+		if (!value) throw new Error(`Row ${row + 1}: photo is required.`);
+		updates.push({
+			id,
+			photo: await resolvePhoto(value, csvDirectory, row + 1),
+		});
+	}
+	return updates;
+}
+
+export type DetailUpdateRow = { id: number; name?: string; price?: number };
+
+// id plus at least one of name / price. Addressed by ID because names repeat.
+export async function readDetailUpdatesCsv(
+	path: string,
+): Promise<DetailUpdateRow[]> {
+	const rows = parseCsv((await readFile(path, "utf8")).replace(/^\uFEFF/, ""));
+	const firstRow = rows[0];
+	if (!firstRow || rows.length < 2)
+		throw new Error("CSV needs a header and at least one row.");
+	const header = firstRow.map((field) => field.trim().toLowerCase());
+	const idColumn = header.indexOf("id");
+	const nameColumn = columnIndex(header, COLUMNS.name);
+	const priceColumn = columnIndex(header, COLUMNS.price);
+	if (idColumn === -1) throw new Error('CSV needs an "id" column.');
+	if (nameColumn === -1 && priceColumn === -1)
+		throw new Error('CSV needs a "name" column, a "price" column, or both.');
+	const updates: DetailUpdateRow[] = [];
+	const seen = new Set<number>();
+	for (let row = 1; row < rows.length; row += 1) {
+		const values = rows[row];
+		if (!values || values.every((field) => !field.trim())) continue;
+		const id = Number(values[idColumn]?.trim());
+		if (!Number.isInteger(id) || id < 1)
+			throw new Error(`Row ${row + 1}: id must be a product ID.`);
+		if (seen.has(id))
+			throw new Error(`Row ${row + 1}: ID ${id} appears more than once.`);
+		seen.add(id);
+		const name = nameColumn === -1 ? "" : (values[nameColumn]?.trim() ?? "");
+		const priceText =
+			priceColumn === -1 ? "" : (values[priceColumn]?.trim() ?? "");
+		if (name && name.length > 24)
+			throw new Error(`Row ${row + 1}: name must be at most 24 characters.`);
+		const price = priceText ? Number(priceText.replaceAll(" ", "")) : undefined;
+		if (price !== undefined && (!Number.isInteger(price) || price < 1))
+			throw new Error(
+				`Row ${row + 1}: price must be a positive whole number in kr.`,
+			);
+		if (!name && price === undefined)
+			throw new Error(`Row ${row + 1}: needs a new name or a new price.`);
+		updates.push({
+			id,
+			...(name ? { name } : {}),
+			...(price === undefined ? {} : { price }),
+		});
+	}
+	return updates;
+}

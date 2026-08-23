@@ -152,12 +152,13 @@ export async function getProductsHtml(): Promise<string> {
 // one used for this product in the saveBooking payload.
 export async function uploadImage(
 	path: string,
-	tempId: string,
+	owner: { tempId: string } | { productId: number },
 ): Promise<string> {
 	const bytes = await readFile(path);
 	const type = path.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
 	const form = new FormData();
-	form.set("temp_id", tempId);
+	if ("tempId" in owner) form.set("temp_id", owner.tempId);
+	else form.set("product_id", String(owner.productId));
 	form.set(
 		"image",
 		new File([bytes], path.split("/").pop() || "image.jpg", { type }),
@@ -243,6 +244,15 @@ export function deleteProducts(
 	return productIdsRequest("delete.json", productIds, "Barnaloppan delete");
 }
 
+// Marks price tags as not printed, which is what returns a listing to an
+// editable state: the site refuses name and price changes while a tag is
+// printed, because the printed tag carries both.
+export function unprintProducts(
+	productIds: number[],
+): Promise<string | undefined> {
+	return productIdsRequest("unPrint.json", productIds, "Barnaloppan unprint");
+}
+
 // The site calls this "søgning": an inactive product stays in the booth but is
 // hidden from search. The site refuses to deactivate a webshop product.
 export function setProductsActive(
@@ -253,5 +263,71 @@ export function setProductsActive(
 		active ? "active.json" : "inactive.json",
 		productIds,
 		active ? "Barnaloppan show" : "Barnaloppan hide",
+	);
+}
+
+export type ImageUpdate = {
+	productId: number;
+	image: string;
+	active: boolean;
+	webshop: string;
+};
+
+// Replaces the photo on products that already exist. The payload deliberately
+// carries no name or price: the site leaves any field it is not sent alone,
+// which is why this works on listings the site has locked for editing.
+export async function updateProductImages(
+	updates: ImageUpdate[],
+): Promise<number[]> {
+	return saveProducts(
+		updates.map((update, order) => ({
+			product_id: String(update.productId),
+			_delete: "0",
+			webshop: update.webshop,
+			image: update.image,
+			newImage: "1",
+			deleteImage: "0",
+			image_2: "",
+			newImage2: "0",
+			deleteImage2: "0",
+			imageUpload: null,
+			active: update.active,
+			order,
+		})),
+	);
+}
+
+export type DetailUpdate = {
+	productId: number;
+	name: string;
+	price: number;
+	image: string;
+	active: boolean;
+	webshop: string;
+};
+
+// Name and price are always sent together, using the listing's current value
+// for whichever is not being changed, so a partial edit cannot blank a field.
+// The existing image is echoed back with newImage 0 so the photo is untouched.
+export async function updateProductDetails(
+	updates: DetailUpdate[],
+): Promise<number[]> {
+	return saveProducts(
+		updates.map((update, order) => ({
+			product_id: String(update.productId),
+			_delete: "0",
+			webshop: update.webshop,
+			image: update.image,
+			newImage: "0",
+			deleteImage: "0",
+			image_2: "",
+			newImage2: "0",
+			deleteImage2: "0",
+			imageUpload: null,
+			name: update.name,
+			price: String(update.price),
+			active: update.active,
+			order,
+		})),
 	);
 }

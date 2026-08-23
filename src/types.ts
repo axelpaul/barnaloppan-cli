@@ -9,6 +9,7 @@ export type Product = {
 	price?: number;
 	status?: string;
 	active?: boolean;
+	webshop?: string;
 };
 
 export type CsvProduct = {

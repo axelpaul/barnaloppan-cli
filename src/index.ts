@@ -6,13 +6,21 @@ import {
 	login,
 	saveProducts,
 	setProductsActive,
+	unprintProducts,
+	updateProductDetails,
+	updateProductImages,
 	uploadImage,
 } from "./lib/client.ts";
 import { clearSession, loadSession, SESSION_PATH } from "./lib/config.ts";
 import { credentialsFromEnv, ENV_PATH } from "./lib/credentials.ts";
-import { readProductsCsv } from "./lib/csv.ts";
+import {
+	readDetailUpdatesCsv,
+	readImageUpdatesCsv,
+	readProductsCsv,
+} from "./lib/csv.ts";
 import { credentialsFrom1Password } from "./lib/onepassword.ts";
 import { isJsonMode, output } from "./lib/output.ts";
+import { productsFromHtml } from "./lib/products.ts";
 import { promptLine, promptSecret, readSecretFromStdin } from "./lib/prompt.ts";
 import {
 	DEFAULT_INDEX_FILE,
@@ -20,7 +28,6 @@ import {
 	mergeIntoIndex,
 	resolveSelectors,
 } from "./lib/select.ts";
-import type { Product } from "./types.ts";
 
 const args = process.argv.slice(2);
 const has = (flag: string) => args.includes(flag);
@@ -44,6 +51,9 @@ Usage:
   barnaloppan auth status [--check] | logout
   barnaloppan list [--json]
   barnaloppan add products.csv [--yes] [--index inventory.csv]
+  barnaloppan set-image updates.csv [--yes]
+  barnaloppan unprint <id | name | photo> [more] [--all] [--yes]
+  barnaloppan edit updates.csv [--yes]
   barnaloppan hide | show <id | name | photo> [more] [--all] [--yes]
   barnaloppan delete <product-id> [more IDs] [--yes]
 
@@ -93,30 +103,6 @@ async function resolveCredentials(): Promise<ResolvedCredentials> {
 	const password = await promptSecret("Barnaloppan password: ");
 	if (!password) throw new Error("A password is required.");
 	return { email, password, source: "prompt" };
-}
-
-function productsFromHtml(html: string): Product[] {
-	const products: Product[] = [];
-	for (const match of html.matchAll(
-		/<div[^>]*class="[^"]*\bproduct\b[^"]*"[^>]*>([\s\S]*?)(?=<div[^>]*class="[^"]*\bproduct\b|$)/gi,
-	)) {
-		const block = match[0];
-		const id = Number(/name="product_id"[^>]*value="(\d+)"/i.exec(block)?.[1]);
-		const name = /name="name"[^>]*value="([^"]*)"/i.exec(block)?.[1];
-		if (!id || name === undefined) continue;
-		const price = Number(/name="price"[^>]*value="(\d+)"/i.exec(block)?.[1]);
-		const status = /data-status="([^"]+)"/i.exec(block)?.[1];
-		// Attribute order varies, so test the whole tag for `checked`.
-		const activeInput = /<input[^>]*name="active"[^>]*>/i.exec(block)?.[0];
-		products.push({
-			id,
-			name: name.replaceAll("&amp;", "&"),
-			...(Number.isFinite(price) && price ? { price } : {}),
-			...(status ? { status } : {}),
-			...(activeInput ? { active: /\bchecked\b/i.test(activeInput) } : {}),
-		});
-	}
-	return products;
 }
 
 async function main(): Promise<void> {
@@ -185,7 +171,7 @@ async function main(): Promise<void> {
 		for (const [order, product] of products.entries()) {
 			const tempId = String(order);
 			const image = product.photo
-				? await uploadImage(product.photo, tempId)
+				? await uploadImage(product.photo, { tempId })
 				: "";
 			// Two products sharing one uploaded path means the images clobbered
 			// each other and all but one listing would end up with no photo.
@@ -250,6 +236,184 @@ async function main(): Promise<void> {
 					: {
 							warning: `Sent ${products.length} products but the booth gained ${created.length}.`,
 						}),
+			},
+			true,
+		);
+	}
+	if (command === "unprint") {
+		const selectors = positional.slice(1);
+		if (!selectors.length)
+			throw new Error(
+				"Usage: barnaloppan unprint <id | name | photo> [more] [--all] [--yes]",
+			);
+		const products = productsFromHtml(await getProductsHtml());
+		const requestedIndex = value("--index");
+		let index = new Map<string, number[]>();
+		try {
+			index = await loadPhotoIndex(requestedIndex ?? DEFAULT_INDEX_FILE);
+		} catch (error) {
+			if (requestedIndex) throw error;
+		}
+		const selected = resolveSelectors(selectors, products, index, has("--all"));
+		if (!has("--yes"))
+			return output(
+				{
+					dryRun: true,
+					count: selected.length,
+					wouldUnprint: selected,
+					note: "Unprinting cannot be undone from this CLI. Reprint the tag from the site to mark it printed again.",
+				},
+				true,
+			);
+		const message = await unprintProducts(
+			selected.map((selection) => selection.id),
+		);
+		return output(
+			{ count: selected.length, unprinted: selected, message },
+			true,
+		);
+	}
+	if (command === "edit") {
+		const csv = positional[1];
+		if (!csv) throw new Error("Usage: barnaloppan edit updates.csv [--yes]");
+		const rows = await readDetailUpdatesCsv(csv);
+		const products = new Map(
+			productsFromHtml(await getProductsHtml()).map((product) => [
+				product.id,
+				product,
+			]),
+		);
+		const plan = rows.map((row) => {
+			const product = products.get(row.id);
+			if (!product)
+				throw new Error(`No listing with ID ${row.id} in this booth.`);
+			// A printed tag makes the site accept the save and ignore the change,
+			// so refuse rather than report a success that did nothing.
+			if (product.status !== "pending")
+				throw new Error(
+					`${row.id} (${product.name}) still has a printed price tag, so the site would ignore a name or price change. Run "barnaloppan unprint ${row.id} --yes" first, and reprint its tag afterwards.`,
+				);
+			if (product.price === undefined && row.price === undefined)
+				throw new Error(
+					`${row.id} (${product.name}) has no readable current price, so give a price for it.`,
+				);
+			return {
+				id: row.id,
+				from: { name: product.name, price: product.price },
+				to: {
+					name: row.name ?? product.name,
+					price: row.price ?? (product.price as number),
+				},
+				product,
+			};
+		});
+		if (!has("--yes"))
+			return output(
+				{
+					dryRun: true,
+					count: plan.length,
+					wouldEdit: plan.map(({ id, from, to }) => ({ id, from, to })),
+				},
+				true,
+			);
+		await updateProductDetails(
+			plan.map((entry) => ({
+				productId: entry.id,
+				name: entry.to.name,
+				price: entry.to.price,
+				image: `uploads/productimages/${entry.id}.jpg`,
+				active: entry.product.active ?? true,
+				webshop: entry.product.webshop ?? "0",
+			})),
+		);
+		const after = new Map(
+			productsFromHtml(await getProductsHtml()).map((product) => [
+				product.id,
+				product,
+			]),
+		);
+		// Read it back: this site reports success on changes it discarded.
+		const applied = plan.map((entry) => {
+			const now = after.get(entry.id);
+			return {
+				id: entry.id,
+				name: now?.name,
+				price: now?.price,
+				applied: now?.name === entry.to.name && now?.price === entry.to.price,
+			};
+		});
+		const failed = applied.filter((entry) => !entry.applied);
+		return output(
+			{
+				count: applied.length,
+				edited: applied,
+				...(failed.length
+					? { warning: `${failed.length} change(s) did not take effect.` }
+					: {}),
+			},
+			true,
+		);
+	}
+	if (command === "set-image") {
+		const csv = positional[1];
+		if (!csv)
+			throw new Error("Usage: barnaloppan set-image updates.csv [--yes]");
+		// Reuses the add CSV reader, so `photo` resolution and its aliases apply.
+		// `name` here is only a label; the listing is addressed by `id`.
+		const rows = await readImageUpdatesCsv(csv);
+		const products = new Map(
+			productsFromHtml(await getProductsHtml()).map((product) => [
+				product.id,
+				product,
+			]),
+		);
+		const plan = rows.map((row) => {
+			const product = products.get(row.id);
+			if (!product)
+				throw new Error(`No listing with ID ${row.id} in this booth.`);
+			return { ...row, name: product.name, product };
+		});
+		if (!has("--yes"))
+			return output(
+				{
+					dryRun: true,
+					count: plan.length,
+					wouldReplace: plan.map((entry) => ({
+						id: entry.id,
+						name: entry.name,
+						photo: entry.photo,
+					})),
+				},
+				true,
+			);
+		const updates = [];
+		for (const entry of plan)
+			updates.push({
+				productId: entry.id,
+				image: await uploadImage(entry.photo, { productId: entry.id }),
+				// Carry the current state through, so replacing a photo never
+				// un-hides a listing or changes its webshop flag.
+				active: entry.product.active ?? true,
+				webshop: entry.product.webshop ?? "0",
+			});
+		const clash = new Map<string, number>();
+		for (const update of updates) {
+			const seen = clash.get(update.image);
+			if (seen !== undefined)
+				throw new Error(
+					`Barnaloppan returned the same upload path for ${seen} and ${update.productId} (${update.image}). Nothing was saved.`,
+				);
+			clash.set(update.image, update.productId);
+		}
+		await updateProductImages(updates);
+		return output(
+			{
+				count: updates.length,
+				replaced: plan.map((entry) => ({
+					id: entry.id,
+					name: entry.name,
+					photo: entry.photo,
+				})),
 			},
 			true,
 		);

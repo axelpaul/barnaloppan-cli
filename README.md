@@ -143,6 +143,42 @@ When `photo` is present, `add --yes` uploads it first and then includes the
 returned image path in the product-save call. Dry runs validate the file and
 show the full proposed batch without uploading or creating anything.
 
+## Changing a listing after it is live
+
+Once the price tags are printed the site locks a listing: it renders name and
+price as plain text instead of inputs, and shows a padlock. That lock is
+enforced server-side, and it is enforced *silently* — a save carrying a new
+name or price is answered `{"status":"success"}` and then discarded.
+
+A photo is not on the printed tag, so it can be replaced at any time:
+
+```bash
+barnaloppan set-image updates.csv        # dry run
+barnaloppan set-image updates.csv --yes  # replaces the photos
+```
+
+`updates.csv` is `id,photo`. Listings are addressed by ID rather than name
+because names repeat. Each listing's current `active` and `webshop` state is
+read and sent back unchanged, so replacing a photo cannot un-hide anything.
+
+Name and price *are* on the tag, so they need the tag marked unprinted first:
+
+```bash
+barnaloppan unprint 12345678 --yes   # or by name / photo
+barnaloppan edit updates.csv --yes   # id + name and/or price
+```
+
+`edit`'s CSV is `id` plus a `name` column, a `price` column, or both. Name and
+price are always sent together, using the listing's current value for whichever
+is not changing, so a partial edit cannot blank a field. `edit` refuses a
+listing whose tag is still printed rather than reporting a change the site threw
+away, and it reads the booth back afterwards to confirm what actually landed.
+
+**`unprint` cannot be undone from this CLI.** Marking a tag printed again means
+printing it from the site, which drives a physical label printer. The tag
+carries the name and price, so a sticker already on a garment will be wrong
+until it is reprinted.
+
 ## Hiding listings
 
 `hide` and `show` toggle what the site calls *søgning*: a hidden listing stays
@@ -181,8 +217,9 @@ already listed, so later batches keep the earlier mappings. Columns are
 `position,id,name,price,photo,active`; any CSV with `id` and `photo` columns
 works. Without an index, IDs and names still work.
 
-`list` reports the current state as `"active": true | false`, so hidden
-listings are easy to find:
+`list` reports `"active": true | false` and `"status"`, so hidden listings are
+easy to find (`status` is `pending` while a tag is unprinted, `active` once it
+has been printed):
 
 ```bash
 barnaloppan list | jq '.[] | select(.active == false)'
