@@ -5,6 +5,7 @@ import {
 	getProductsHtml,
 	login,
 	saveProducts,
+	setProductsActive,
 	uploadImage,
 } from "./lib/client.ts";
 import { clearSession, loadSession, SESSION_PATH } from "./lib/config.ts";
@@ -13,6 +14,12 @@ import { readProductsCsv } from "./lib/csv.ts";
 import { credentialsFrom1Password } from "./lib/onepassword.ts";
 import { isJsonMode, output } from "./lib/output.ts";
 import { promptLine, promptSecret, readSecretFromStdin } from "./lib/prompt.ts";
+import {
+	DEFAULT_INDEX_FILE,
+	loadPhotoIndex,
+	mergeIntoIndex,
+	resolveSelectors,
+} from "./lib/select.ts";
 import type { Product } from "./types.ts";
 
 const args = process.argv.slice(2);
@@ -21,7 +28,7 @@ const value = (flag: string) => {
 	const index = args.indexOf(flag);
 	return index >= 0 ? args[index + 1] : undefined;
 };
-const VALUE_FLAGS = new Set(["--booking-id", "--email"]);
+const VALUE_FLAGS = new Set(["--booking-id", "--email", "--index"]);
 const positional = args.filter(
 	(arg, index) =>
 		!arg.startsWith("-") && !VALUE_FLAGS.has(args[index - 1] ?? ""),
@@ -36,7 +43,8 @@ Usage:
   barnaloppan auth login --from-env | --from-1password [--booking-id ID]
   barnaloppan auth status [--check] | logout
   barnaloppan list [--json]
-  barnaloppan add products.csv [--yes]
+  barnaloppan add products.csv [--yes] [--index inventory.csv]
+  barnaloppan hide | show <id | name | photo> [more] [--all] [--yes]
   barnaloppan delete <product-id> [more IDs] [--yes]
 
 CSV columns: name (or title), price, active, photo (or image).
@@ -98,11 +106,14 @@ function productsFromHtml(html: string): Product[] {
 		if (!id || name === undefined) continue;
 		const price = Number(/name="price"[^>]*value="(\d+)"/i.exec(block)?.[1]);
 		const status = /data-status="([^"]+)"/i.exec(block)?.[1];
+		// Attribute order varies, so test the whole tag for `checked`.
+		const activeInput = /<input[^>]*name="active"[^>]*>/i.exec(block)?.[0];
 		products.push({
 			id,
 			name: name.replaceAll("&amp;", "&"),
 			...(Number.isFinite(price) && price ? { price } : {}),
 			...(status ? { status } : {}),
+			...(activeInput ? { active: /\bchecked\b/i.test(activeInput) } : {}),
 		});
 	}
 	return products;
@@ -208,10 +219,30 @@ async function main(): Promise<void> {
 		const created = productsFromHtml(await getProductsHtml()).filter(
 			(product) => !before.has(product.id),
 		);
+		const indexPath = value("--index");
+		let indexResult: { added: number; total: number } | undefined;
+		// created comes back newest-first, which is the order the products were
+		// sent, so the two line up only when every product was created.
+		if (indexPath && created.length === products.length)
+			indexResult = await mergeIntoIndex(
+				indexPath,
+				created.map((product, position) => ({
+					id: product.id,
+					name: product.name,
+					...(product.price === undefined ? {} : { price: product.price }),
+					photo:
+						products[position]?.photo
+							?.split("/")
+							.pop()
+							?.replace(/\.[^.]+$/, "") ?? "",
+					active: product.active ?? true,
+				})),
+			);
 		return output(
 			{
 				count: products.length,
 				created: created.length,
+				...(indexResult ? { index: { file: indexPath, ...indexResult } } : {}),
 				products: created,
 				...(reported.length ? { reportedIds: reported } : {}),
 				...(created.length === products.length
@@ -219,6 +250,45 @@ async function main(): Promise<void> {
 					: {
 							warning: `Sent ${products.length} products but the booth gained ${created.length}.`,
 						}),
+			},
+			true,
+		);
+	}
+	if (command === "hide" || command === "show") {
+		const active = command === "show";
+		const selectors = positional.slice(1);
+		if (!selectors.length)
+			throw new Error(
+				`Usage: barnaloppan ${command} <id | name | photo> [more] [--all] [--yes]`,
+			);
+		const products = productsFromHtml(await getProductsHtml());
+		const requestedIndex = value("--index");
+		let index = new Map<string, number[]>();
+		try {
+			index = await loadPhotoIndex(requestedIndex ?? DEFAULT_INDEX_FILE);
+		} catch (error) {
+			// An explicitly requested index must exist; the default one need not.
+			if (requestedIndex) throw error;
+		}
+		const selected = resolveSelectors(selectors, products, index, has("--all"));
+		if (!has("--yes"))
+			return output(
+				{
+					dryRun: true,
+					count: selected.length,
+					[active ? "wouldShow" : "wouldHide"]: selected,
+				},
+				true,
+			);
+		const message = await setProductsActive(
+			selected.map((selection) => selection.id),
+			active,
+		);
+		return output(
+			{
+				count: selected.length,
+				[active ? "shown" : "hidden"]: selected,
+				message,
 			},
 			true,
 		);

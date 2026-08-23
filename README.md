@@ -35,6 +35,8 @@ barnaloppan auth status --check             # is the stored session still live?
 barnaloppan list --json
 barnaloppan add clothes.csv        # dry run
 barnaloppan add clothes.csv --yes  # uploads photos and creates listings
+barnaloppan hide 12345678 --yes    # hide from search, keeps the listing
+barnaloppan show 12345678 --yes    # put it back in search
 barnaloppan delete 12345678        # dry run
 barnaloppan delete 12345678 --yes  # permanently removes it
 ```
@@ -117,7 +119,7 @@ as-is. Headers are matched case-insensitively:
 | name | `name`, `title` |
 | price | `price` |
 | active | `active` |
-| photo | `photo`, `image` |
+| photo | `photo`, `image`, `filename`, `file` |
 
 A photo may be given with or without its extension, and relative to either the
 current directory or the CSV's own directory:
@@ -140,6 +142,54 @@ Names are limited to 24 characters because the site enforces that limit.
 When `photo` is present, `add --yes` uploads it first and then includes the
 returned image path in the product-save call. Dry runs validate the file and
 show the full proposed batch without uploading or creating anything.
+
+## Hiding listings
+
+`hide` and `show` toggle what the site calls *søgning*: a hidden listing stays
+in the booth, keeps its ID and price tag, and is only removed from search. This
+is the magnifying-glass column in the booth view, and it is fully reversible —
+unlike `delete`.
+
+`hide` and `show` accept a product ID, a product name, or a photo name:
+
+```bash
+barnaloppan hide 12345678 --yes             # by ID
+barnaloppan hide "Ikea leikslá" --yes       # by exact name
+barnaloppan hide svefnpoki --all --yes      # by partial name, every match
+barnaloppan hide IMG_0407 --yes             # by photo name
+barnaloppan hide IMG_0407 "Ikea leikslá" 12345678 --yes   # mixed
+```
+
+A name is matched case-insensitively: exact first, then as a substring. A
+selector that matches more than one listing is **refused** unless you pass
+`--all`, and the error lists every match, so a broad word can never quietly
+hide more than you meant. Without `--yes` you get a dry run naming each
+resolved listing and which selector found it.
+
+### The photo index
+
+The site renames every upload to `<product_id>.jpg` and keeps no record of the
+original filename, so photo names resolve through a local index — `inventory.csv`
+in the current directory by default, or `--index <file>`. Build it as you upload:
+
+```bash
+barnaloppan add products.csv --yes --index inventory.csv
+```
+
+That **merges** into any existing index rather than replacing it, skipping IDs
+already listed, so later batches keep the earlier mappings. Columns are
+`position,id,name,price,photo,active`; any CSV with `id` and `photo` columns
+works. Without an index, IDs and names still work.
+
+`list` reports the current state as `"active": true | false`, so hidden
+listings are easy to find:
+
+```bash
+barnaloppan list | jq '.[] | select(.active == false)'
+```
+
+The site refuses to hide a product that is in the webshop; remove it from the
+webshop first.
 
 `delete` is permanent and accepts only explicit product IDs. It always starts
 as a dry run; use `--yes` only after checking the target IDs with `list`.

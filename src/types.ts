@@ -8,6 +8,7 @@ export type Product = {
 	name: string;
 	price?: number;
 	status?: string;
+	active?: boolean;
 };
 
 export type CsvProduct = {

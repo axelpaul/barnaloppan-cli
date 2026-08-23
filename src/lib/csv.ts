@@ -7,12 +7,12 @@ const COLUMNS = {
 	name: ["name", "title"],
 	price: ["price"],
 	active: ["active"],
-	photo: ["photo", "image"],
+	photo: ["photo", "image", "filename", "file"],
 } as const;
 
 const PHOTO_EXTENSIONS = [".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"];
 
-function parseCsv(source: string): string[][] {
+export function parseCsv(source: string): string[][] {
 	const rows: string[][] = [[]];
 	let value = "";
 	let quoted = false;
@@ -104,7 +104,8 @@ async function resolvePhoto(
 }
 
 export async function readProductsCsv(path: string): Promise<CsvProduct[]> {
-	const rows = parseCsv(await readFile(path, "utf8"));
+	const source = (await readFile(path, "utf8")).replace(/^\uFEFF/, "");
+	const rows = parseCsv(source);
 	if (rows.length < 2)
 		throw new Error("CSV needs a header and at least one product.");
 	const firstRow = rows[0];

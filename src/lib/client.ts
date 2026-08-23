@@ -206,14 +206,17 @@ export async function saveProducts(products: unknown[]): Promise<number[]> {
 		: [];
 }
 
-export async function deleteProducts(
+// delete.json, active.json and inactive.json all take the same body.
+async function productIdsRequest(
+	path: string,
 	productIds: number[],
+	context: string,
 ): Promise<string | undefined> {
 	const session = await loadSession();
 	const body = new URLSearchParams({ booking_id: String(session.bookingId) });
 	for (const id of productIds) body.append("product_ids[]", String(id));
 	const response = await checked(
-		await fetch(`${PRODUCTS}/delete.json`, {
+		await fetch(`${PRODUCTS}/${path}`, {
 			method: "POST",
 			headers: {
 				...browserHeaders(session.cookie),
@@ -221,7 +224,7 @@ export async function deleteProducts(
 			},
 			body,
 		}),
-		"Barnaloppan delete",
+		context,
 	);
 	const result = (await response.json()) as {
 		status?: unknown;
@@ -229,7 +232,26 @@ export async function deleteProducts(
 	};
 	if (result.status !== "success")
 		throw new Error(
-			`Barnaloppan did not delete products: ${typeof result.message === "string" ? result.message : "unknown error"}`,
+			`${context} was refused: ${typeof result.message === "string" ? result.message : "unknown error"}`,
 		);
 	return typeof result.message === "string" ? result.message : undefined;
+}
+
+export function deleteProducts(
+	productIds: number[],
+): Promise<string | undefined> {
+	return productIdsRequest("delete.json", productIds, "Barnaloppan delete");
+}
+
+// The site calls this "søgning": an inactive product stays in the booth but is
+// hidden from search. The site refuses to deactivate a webshop product.
+export function setProductsActive(
+	productIds: number[],
+	active: boolean,
+): Promise<string | undefined> {
+	return productIdsRequest(
+		active ? "active.json" : "inactive.json",
+		productIds,
+		active ? "Barnaloppan show" : "Barnaloppan hide",
+	);
 }
