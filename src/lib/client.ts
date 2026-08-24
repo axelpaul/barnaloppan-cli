@@ -51,13 +51,17 @@ async function checked(response: Response, context: string): Promise<Response> {
 	throw new Error(`${context} failed: HTTP ${response.status}`);
 }
 
-function browserHeaders(cookie: string, xhr = true): HeadersInit {
+function browserHeaders(
+	cookie: string,
+	xhr = true,
+	referer = `${ORIGIN}/barnaloppan-min/bas`,
+): HeadersInit {
 	return {
 		Cookie: cookie,
 		"User-Agent": USER_AGENT,
 		Accept: "*/*",
 		"Accept-Language": "en-GB,en;q=0.9,is-IS;q=0.8,is;q=0.7,en-US;q=0.6",
-		Referer: `${ORIGIN}/barnaloppan-min/bas`,
+		Referer: referer,
 		Origin: ORIGIN,
 		...(xhr
 			? {
@@ -150,6 +154,25 @@ export async function getProductsHtml(): Promise<string> {
 // every upload in a batch lands on the same path and overwrites the last, so
 // only one product ends up with a real image file. The temp_id must match the
 // one used for this product in the saveBooking payload.
+// The sales/payout view. Returns an HTML table, not JSON.
+export async function getPayoutHtml(): Promise<string> {
+	const session = await loadSession();
+	const response = await checked(
+		await fetch(
+			`${PRODUCTS}/getProductsForPayout?booking_id=${session.bookingId}`,
+			{
+				headers: browserHeaders(
+					session.cookie,
+					true,
+					`${ORIGIN}/barnaloppan-min/sala`,
+				),
+			},
+		),
+		"Barnaloppan sales",
+	);
+	return response.text();
+}
+
 export async function uploadImage(
 	path: string,
 	owner: { tempId: string } | { productId: number },

@@ -36,6 +36,7 @@ export function productsFromHtml(html: string): Product[] {
 		// Attribute order varies, so test the whole tag for `checked`.
 		const activeInput = /<input[^>]*name="active"[^>]*>/i.exec(block)?.[0];
 		const webshop = /name="webshop"[^>]*value="([^"]*)"/i.exec(block)?.[1];
+		const soldFlag = /data-sold="([^"]*)"/i.exec(block)?.[1];
 		products.push({
 			id,
 			name: decodeEntities(name),
@@ -43,6 +44,7 @@ export function productsFromHtml(html: string): Product[] {
 			...(status ? { status } : {}),
 			...(activeInput ? { active: /\bchecked\b/i.test(activeInput) } : {}),
 			...(webshop === undefined ? {} : { webshop }),
+			...(soldFlag === undefined ? {} : { sold: soldFlag !== "0" }),
 		});
 	}
 	return products;

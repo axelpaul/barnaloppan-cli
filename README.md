@@ -41,6 +41,43 @@ barnaloppan delete 12345678        # dry run
 barnaloppan delete 12345678 --yes  # permanently removes it
 ```
 
+## Sales
+
+```bash
+barnaloppan sales
+```
+
+Reads the payout view and reports each sale with its timestamp, plus the
+totals:
+
+```json
+{
+  "count": 6,
+  "sales": [
+    { "name": "Ergopouch svefnpok 68-92", "soldAt": "24.8.2026, 13:18",
+      "soldAtIso": "2026-08-24T13:18", "amount": 5000, "online": false }
+  ],
+  "soldTotal": 14000,
+  "commission": 2800,
+  "commissionRate": "20%",
+  "paidOut": 0,
+  "balance": 11200,
+  "rowSum": 14000
+}
+```
+
+`commission` is the amount deducted, given as a positive number; `balance` is
+what the site shows as *Inneign*. `rowSum` adds up the individual rows, and a
+`warning` field appears if it disagrees with the site's own total — the endpoint
+returns an HTML table rather than JSON, so that mismatch is the tripwire for the
+markup having changed. Amounts are parsed from Icelandic formatting, where
+`5.000 kr.` is five thousand. `soldAtIso` is local booth time with no timezone
+implied.
+
+Sales rows carry no product ID, and names can repeat, so they cannot be mapped
+to listings reliably. Use `list` for that instead: it reports `"sold": true` and
+`"status": "completed"` on the listings that sold, with their IDs.
+
 ## Credentials
 
 `auth login` resolves credentials in this order: `--from-1password`, then

@@ -10,6 +10,7 @@ export type Product = {
 	status?: string;
 	active?: boolean;
 	webshop?: string;
+	sold?: boolean;
 };
 
 export type CsvProduct = {

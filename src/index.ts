@@ -2,6 +2,7 @@
 
 import {
 	deleteProducts,
+	getPayoutHtml,
 	getProductsHtml,
 	login,
 	saveProducts,
@@ -22,6 +23,7 @@ import { credentialsFrom1Password } from "./lib/onepassword.ts";
 import { isJsonMode, output } from "./lib/output.ts";
 import { productsFromHtml } from "./lib/products.ts";
 import { promptLine, promptSecret, readSecretFromStdin } from "./lib/prompt.ts";
+import { salesFromHtml } from "./lib/sales.ts";
 import {
 	DEFAULT_INDEX_FILE,
 	loadPhotoIndex,
@@ -50,6 +52,7 @@ Usage:
   barnaloppan auth login --from-env | --from-1password [--booking-id ID]
   barnaloppan auth status [--check] | logout
   barnaloppan list [--json]
+  barnaloppan sales
   barnaloppan add products.csv [--yes] [--index inventory.csv]
   barnaloppan set-image updates.csv [--yes]
   barnaloppan unprint <id | name | photo> [more] [--all] [--yes]
@@ -155,6 +158,8 @@ async function main(): Promise<void> {
 	}
 	if (command === "list")
 		return output(productsFromHtml(await getProductsHtml()), true);
+	if (command === "sales")
+		return output(salesFromHtml(await getPayoutHtml()), true);
 	if (command === "add") {
 		const csv = positional[1];
 		if (!csv) throw new Error("Usage: barnaloppan add products.csv [--yes]");
