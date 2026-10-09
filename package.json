@@ -4,16 +4,23 @@
   "private": true,
   "type": "module",
   "module": "src/index.ts",
-  "bin": { "barnaloppan": "src/index.ts" },
+  "bin": {
+    "barnaloppan": "src/index.ts"
+  },
   "scripts": {
     "start": "bun src/index.ts",
     "build": "bun build --compile src/index.ts --outfile barnaloppan",
     "typecheck": "bunx tsc --noEmit",
     "lint": "bunx biome check src/",
-    "check": "bun run lint && bun run typecheck"
+    "check": "bun run lint && bun run typecheck && bun run test",
+    "test": "bun test"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.9",
     "@types/bun": "^1.3.12"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "zod": "^4.6.5"
   }
 }
