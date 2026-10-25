@@ -1,7 +1,21 @@
 {
   "name": "barnaloppan-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "description": "Unofficial CLI and MCP server for Barnaloppan booth inventory and sales",
   "private": true,
+  "license": "MIT",
+  "author": "Axel Paul Gunnarsson",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/axelpaul/barnaloppan-cli.git"
+  },
+  "homepage": "https://github.com/axelpaul/barnaloppan-cli#readme",
+  "bugs": {
+    "url": "https://github.com/axelpaul/barnaloppan-cli/issues"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
   "type": "module",
   "module": "src/index.ts",
   "bin": {
