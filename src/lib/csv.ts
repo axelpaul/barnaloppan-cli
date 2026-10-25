@@ -70,20 +70,20 @@ async function readable(path: string): Promise<boolean> {
 // so the upload works whatever the caller's directory is.
 async function resolvePhoto(
 	value: string,
-	csvDirectory: string,
-	row: number,
+	baseDirectory: string,
+	label: string,
 ): Promise<string> {
 	const extension = /\.[^./\\]+$/.exec(value)?.[0];
 	if (extension && !/^\.(jpe?g|png)$/i.test(extension))
 		throw new Error(
-			`Row ${row}: photo must be a .jpg, .jpeg, or .png file: ${value}`,
+			`${label}: photo must be a .jpg, .jpeg, or .png file: ${value}`,
 		);
 	const bases = isAbsolute(value)
 		? [value]
 		: [
 				...new Set([
 					resolve(process.cwd(), value),
-					resolve(csvDirectory, value),
+					resolve(baseDirectory, value),
 				]),
 			];
 	const tried: string[] = [];
@@ -97,10 +97,44 @@ async function resolvePhoto(
 		}
 	}
 	if (extension)
-		throw new Error(`Row ${row}: photo cannot be read: ${tried.join(", ")}`);
+		throw new Error(`${label}: photo cannot be read: ${tried.join(", ")}`);
 	throw new Error(
-		`Row ${row}: no .jpg, .jpeg, or .png found for "${value}". Tried ${tried.length} paths, starting with ${tried[0]}`,
+		`${label}: no .jpg, .jpeg, or .png found for "${value}". Tried ${tried.length} paths, starting with ${tried[0]}`,
 	);
+}
+
+export type RawProduct = {
+	name: string;
+	price: string | number;
+	active?: string | boolean;
+	photo?: string;
+};
+
+// Shared by the CSV reader and the MCP tool, so both apply the same limits.
+// `label` prefixes errors ("Row 3", "products[2]"); relative photos resolve
+// against the working directory, then `baseDirectory`.
+export async function normalizeProduct(
+	raw: RawProduct,
+	label: string,
+	baseDirectory = process.cwd(),
+): Promise<CsvProduct> {
+	const name = raw.name.trim();
+	const price = Number(String(raw.price).replaceAll(" ", ""));
+	if (!name || name.length > 24)
+		throw new Error(
+			`${label}: name is required and must be at most 24 characters.`,
+		);
+	if (!Number.isInteger(price) || price < 1)
+		throw new Error(`${label}: price must be a positive whole number in kr.`);
+	const active =
+		typeof raw.active === "boolean"
+			? raw.active
+			: !["0", "false", "no"].includes((raw.active ?? "").trim().toLowerCase());
+	const value = raw.photo?.trim();
+	const photo = value
+		? await resolvePhoto(value, baseDirectory, label)
+		: undefined;
+	return { name, price, active, photo };
 }
 
 export async function readProductsCsv(path: string): Promise<CsvProduct[]> {
@@ -128,27 +162,54 @@ export async function readProductsCsv(path: string): Promise<CsvProduct[]> {
 		if (!values) continue;
 		const get = (column: keyof typeof indexes) =>
 			indexes[column] === -1 ? "" : (values[indexes[column]]?.trim() ?? "");
-		const name = get("name");
-		const price = Number(get("price").replaceAll(" ", ""));
-		if (!name || name.length > 24)
-			throw new Error(
-				`Row ${row + 1}: name is required and must be at most 24 characters.`,
-			);
-		if (!Number.isInteger(price) || price < 1)
-			throw new Error(
-				`Row ${row + 1}: price must be a positive whole number in kr.`,
-			);
-		const active = !["0", "false", "no"].includes(get("active").toLowerCase());
-		const value = get("photo");
-		const photo = value
-			? await resolvePhoto(value, csvDirectory, row + 1)
-			: undefined;
-		products.push({ name, price, active, photo });
+		products.push(
+			await normalizeProduct(
+				{
+					name: get("name"),
+					price: get("price"),
+					active: get("active"),
+					photo: get("photo"),
+				},
+				`Row ${row + 1}`,
+				csvDirectory,
+			),
+		);
 	}
 	return products;
 }
 
 export type ImageUpdateRow = { id: number; photo: string };
+
+function productId(value: unknown, label: string): number {
+	const id = Number(typeof value === "string" ? value.trim() : value);
+	if (!Number.isInteger(id) || id < 1)
+		throw new Error(`${label}: id must be a product ID.`);
+	return id;
+}
+
+export async function normalizeImageUpdates(
+	raw: Array<{ id: string | number; photo: string }>,
+	labelFor: (position: number) => string,
+	baseDirectory = process.cwd(),
+): Promise<ImageUpdateRow[]> {
+	const updates: ImageUpdateRow[] = [];
+	const seen = new Set<number>();
+	for (const [position, entry] of raw.entries()) {
+		const label = labelFor(position);
+		const id = productId(entry.id, label);
+		if (seen.has(id))
+			throw new Error(`${label}: ID ${id} appears more than once.`);
+		seen.add(id);
+		const value = entry.photo?.trim();
+		if (!value) throw new Error(`${label}: photo is required.`);
+		updates.push({
+			id,
+			photo: await resolvePhoto(value, baseDirectory, label),
+		});
+	}
+	if (!updates.length) throw new Error("Give at least one listing to update.");
+	return updates;
+}
 
 // id,photo - the listing is addressed by ID because names can repeat.
 export async function readImageUpdatesCsv(
@@ -163,29 +224,52 @@ export async function readImageUpdatesCsv(
 	const photoColumn = columnIndex(header, COLUMNS.photo);
 	if (idColumn === -1 || photoColumn === -1)
 		throw new Error('CSV needs an "id" column and a "photo" column.');
-	const csvDirectory = dirname(resolve(path));
-	const updates: ImageUpdateRow[] = [];
-	const seen = new Set<number>();
-	for (let row = 1; row < rows.length; row += 1) {
-		const values = rows[row];
-		if (!values || values.every((field) => !field.trim())) continue;
-		const id = Number(values[idColumn]?.trim());
-		if (!Number.isInteger(id) || id < 1)
-			throw new Error(`Row ${row + 1}: id must be a product ID.`);
-		if (seen.has(id))
-			throw new Error(`Row ${row + 1}: ID ${id} appears more than once.`);
-		seen.add(id);
-		const value = values[photoColumn]?.trim();
-		if (!value) throw new Error(`Row ${row + 1}: photo is required.`);
-		updates.push({
-			id,
-			photo: await resolvePhoto(value, csvDirectory, row + 1),
-		});
-	}
-	return updates;
+	const body = rows
+		.map((values, row) => ({ values, row }))
+		.slice(1)
+		.filter(({ values }) => values.some((field) => field.trim()));
+	return normalizeImageUpdates(
+		body.map(({ values }) => ({
+			id: values[idColumn] ?? "",
+			photo: values[photoColumn] ?? "",
+		})),
+		(position) => `Row ${(body[position]?.row ?? 0) + 1}`,
+		dirname(resolve(path)),
+	);
 }
 
 export type DetailUpdateRow = { id: number; name?: string; price?: number };
+
+export function normalizeDetailUpdates(
+	raw: Array<{ id: string | number; name?: string; price?: string | number }>,
+	labelFor: (position: number) => string,
+): DetailUpdateRow[] {
+	const updates: DetailUpdateRow[] = [];
+	const seen = new Set<number>();
+	for (const [position, entry] of raw.entries()) {
+		const label = labelFor(position);
+		const id = productId(entry.id, label);
+		if (seen.has(id))
+			throw new Error(`${label}: ID ${id} appears more than once.`);
+		seen.add(id);
+		const name = entry.name?.trim() ?? "";
+		const priceText = String(entry.price ?? "").trim();
+		if (name && name.length > 24)
+			throw new Error(`${label}: name must be at most 24 characters.`);
+		const price = priceText ? Number(priceText.replaceAll(" ", "")) : undefined;
+		if (price !== undefined && (!Number.isInteger(price) || price < 1))
+			throw new Error(`${label}: price must be a positive whole number in kr.`);
+		if (!name && price === undefined)
+			throw new Error(`${label}: needs a new name or a new price.`);
+		updates.push({
+			id,
+			...(name ? { name } : {}),
+			...(price === undefined ? {} : { price }),
+		});
+	}
+	if (!updates.length) throw new Error("Give at least one listing to edit.");
+	return updates;
+}
 
 // id plus at least one of name / price. Addressed by ID because names repeat.
 export async function readDetailUpdatesCsv(
@@ -202,34 +286,16 @@ export async function readDetailUpdatesCsv(
 	if (idColumn === -1) throw new Error('CSV needs an "id" column.');
 	if (nameColumn === -1 && priceColumn === -1)
 		throw new Error('CSV needs a "name" column, a "price" column, or both.');
-	const updates: DetailUpdateRow[] = [];
-	const seen = new Set<number>();
-	for (let row = 1; row < rows.length; row += 1) {
-		const values = rows[row];
-		if (!values || values.every((field) => !field.trim())) continue;
-		const id = Number(values[idColumn]?.trim());
-		if (!Number.isInteger(id) || id < 1)
-			throw new Error(`Row ${row + 1}: id must be a product ID.`);
-		if (seen.has(id))
-			throw new Error(`Row ${row + 1}: ID ${id} appears more than once.`);
-		seen.add(id);
-		const name = nameColumn === -1 ? "" : (values[nameColumn]?.trim() ?? "");
-		const priceText =
-			priceColumn === -1 ? "" : (values[priceColumn]?.trim() ?? "");
-		if (name && name.length > 24)
-			throw new Error(`Row ${row + 1}: name must be at most 24 characters.`);
-		const price = priceText ? Number(priceText.replaceAll(" ", "")) : undefined;
-		if (price !== undefined && (!Number.isInteger(price) || price < 1))
-			throw new Error(
-				`Row ${row + 1}: price must be a positive whole number in kr.`,
-			);
-		if (!name && price === undefined)
-			throw new Error(`Row ${row + 1}: needs a new name or a new price.`);
-		updates.push({
-			id,
-			...(name ? { name } : {}),
-			...(price === undefined ? {} : { price }),
-		});
-	}
-	return updates;
+	const body = rows
+		.map((values, row) => ({ values, row }))
+		.slice(1)
+		.filter(({ values }) => values.some((field) => field.trim()));
+	return normalizeDetailUpdates(
+		body.map(({ values }) => ({
+			id: values[idColumn] ?? "",
+			name: nameColumn === -1 ? undefined : values[nameColumn],
+			price: priceColumn === -1 ? undefined : values[priceColumn],
+		})),
+		(position) => `Row ${(body[position]?.row ?? 0) + 1}`,
+	);
 }
