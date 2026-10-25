@@ -1,11 +1,14 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { CONFIG_DIR } from "./config.ts";
+import { CONFIG_DIR, LEGACY_CONFIG_DIR } from "./config.ts";
 
 // Bun auto-loads ./.env, but only relative to the current directory, so a
 // project .env goes unseen when the CLI runs from anywhere else. This file is
 // the directory-independent fallback.
 export const ENV_PATH = join(CONFIG_DIR, ".env");
+const LEGACY_ENV_PATH = LEGACY_CONFIG_DIR
+	? join(LEGACY_CONFIG_DIR, ".env")
+	: undefined;
 
 export type PartialCredentials = { email?: string; password?: string };
 
@@ -60,18 +63,30 @@ function present(values: {
 	};
 }
 
-async function credentialsFromEnvFile(): Promise<PartialCredentials> {
-	let source: string;
-	try {
-		source = await readFile(ENV_PATH, "utf8");
-	} catch {
-		return {};
+async function credentialsFromEnvFile(): Promise<
+	PartialCredentials & { path?: string }
+> {
+	let source: string | undefined;
+	let path: string | undefined;
+	for (const candidate of [ENV_PATH, LEGACY_ENV_PATH]) {
+		if (!candidate) continue;
+		try {
+			source = await readFile(candidate, "utf8");
+			path = candidate;
+			break;
+		} catch {
+			// Try the next location.
+		}
 	}
+	if (source === undefined) return {};
 	const values = parseEnv(source);
-	return present({
-		email: values.get("BARNALOPPAN_EMAIL"),
-		password: values.get("BARNALOPPAN_PASSWORD"),
-	});
+	return {
+		...present({
+			email: values.get("BARNALOPPAN_EMAIL"),
+			password: values.get("BARNALOPPAN_PASSWORD"),
+		}),
+		path,
+	};
 }
 
 export async function credentialsFromEnv(): Promise<PartialCredentials> {
@@ -83,9 +98,9 @@ export async function credentialsFromEnv(): Promise<PartialCredentials> {
 	if (fromProcess.password)
 		await warnIfReadableByOthers(join(process.cwd(), ".env"));
 	if (fromProcess.email && fromProcess.password) return fromProcess;
-	const fromFile = await credentialsFromEnvFile();
-	if (fromFile.password && !fromProcess.password)
-		await warnIfReadableByOthers(ENV_PATH);
+	const { path, ...fromFile } = await credentialsFromEnvFile();
+	if (path && fromFile.password && !fromProcess.password)
+		await warnIfReadableByOthers(path);
 	// Per field, an explicit environment variable beats the file.
 	return { ...fromFile, ...fromProcess };
 }

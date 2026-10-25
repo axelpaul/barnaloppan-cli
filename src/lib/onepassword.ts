@@ -1,11 +1,18 @@
+// Optional, off by default: used only with `auth login --from-1password`.
+// The item (and optionally vault) must be named in the environment; nothing
+// about anyone's 1Password layout is assumed here.
 export async function credentialsFrom1Password(): Promise<{
 	email: string;
 	password: string;
 }> {
+	const itemName = Bun.env.BARNALOPPAN_1PASSWORD_ITEM?.trim();
+	if (!itemName)
+		throw new Error(
+			"--from-1password needs BARNALOPPAN_1PASSWORD_ITEM set to the name or ID of your 1Password item (optionally BARNALOPPAN_1PASSWORD_VAULT too).",
+		);
 	const op = Bun.which("op");
 	if (!op)
 		throw new Error("1Password CLI (op) is not installed or not on PATH.");
-	const itemName = Bun.env.BARNALOPPAN_1PASSWORD_ITEM || "Barnaloppan";
 	const vault = Bun.env.BARNALOPPAN_1PASSWORD_VAULT;
 	const args = [op, "item", "get", itemName, "--format", "json"];
 	if (vault) args.push("--vault", vault);
