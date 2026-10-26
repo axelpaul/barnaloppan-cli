@@ -1,0 +1,120 @@
+{
+  "$schema": "https://mcp.axelpaul.is/catalog.schema.json",
+  "id": "barnaloppan",
+  "repo": "axelpaul/barnaloppan-cli",
+  "name": "Barnaloppan",
+  "service": "Barnaloppan",
+  "serviceUrl": "https://www.barnaloppan.is",
+  "tagline": "Listings, prices and sales for your Barnaloppan booth",
+  "description": "Manage your booth at Barnaloppan, the second-hand children’s market. Add listings, update prices and photos, and track sales and payouts. You can also hide sold items from the list.",
+  "examples": [
+    "What were my booth’s total sales this week?",
+    "Lower the price of the winter overalls to 3,000 kr.",
+    "Hide the listings that have sold."
+  ],
+  "category": "Kids & family",
+  "auth": "email+password",
+  "binaries": true,
+  "tools": [
+    {
+      "name": "list_products",
+      "write": false,
+      "description": "List booth listings with price, tag status, hidden and sold flags"
+    },
+    {
+      "name": "get_sales",
+      "write": false,
+      "description": "Sales rows and payout totals (sold, commission, balance)"
+    },
+    {
+      "name": "auth_status",
+      "write": false,
+      "description": "Show the stored session and optionally check it is live"
+    },
+    {
+      "name": "add_products",
+      "write": true,
+      "description": "Create listings with optional local photos"
+    },
+    {
+      "name": "set_product_images",
+      "write": true,
+      "description": "Replace photos on existing listings by ID"
+    },
+    {
+      "name": "unprint_products",
+      "write": true,
+      "description": "Mark price tags unprinted so name/price can be edited"
+    },
+    {
+      "name": "edit_products",
+      "write": true,
+      "description": "Change name and/or price of listings by ID"
+    },
+    {
+      "name": "hide_products",
+      "write": true,
+      "description": "Hide listings from search (reversible)"
+    },
+    {
+      "name": "show_products",
+      "write": true,
+      "description": "Put hidden listings back in search"
+    },
+    {
+      "name": "delete_products",
+      "write": true,
+      "description": "Permanently delete listings by ID"
+    }
+  ],
+  "commands": [
+    "barnaloppan auth login",
+    "barnaloppan auth status --check",
+    "barnaloppan list",
+    "barnaloppan sales",
+    "barnaloppan add products.csv --yes",
+    "barnaloppan set-image updates.csv --yes",
+    "barnaloppan unprint <id|name|photo> --yes",
+    "barnaloppan edit updates.csv --yes",
+    "barnaloppan hide <id|name|photo> --yes",
+    "barnaloppan show <id|name|photo> --yes",
+    "barnaloppan delete <id> --yes",
+    "barnaloppan serve"
+  ],
+  "envVars": [
+    {
+      "name": "BARNALOPPAN_EMAIL",
+      "description": "Login email for auth login"
+    },
+    {
+      "name": "BARNALOPPAN_PASSWORD",
+      "description": "Login password for auth login (never stored)"
+    },
+    {
+      "name": "BARNALOPPAN_1PASSWORD_ITEM",
+      "description": "1Password item for optional --from-1password"
+    },
+    {
+      "name": "BARNALOPPAN_1PASSWORD_VAULT",
+      "description": "Optional 1Password vault for that item"
+    },
+    {
+      "name": "BARNALOPPAN_MCP_ENABLE_WRITES",
+      "description": "Set to 1 to expose MCP write tools"
+    },
+    {
+      "name": "BARNALOPPAN_CONFIG_DIR",
+      "description": "Override the config directory (default $XDG_CONFIG_HOME/barnaloppan-cli)"
+    }
+  ],
+  "writesEnvVar": "BARNALOPPAN_MCP_ENABLE_WRITES",
+  "is": {
+    "tagline": "Vörur, verð og sala í básnum þínum í Barnaloppunni",
+    "description": "Haltu utan um básinn þinn í Barnaloppunni. Skráðu vörur, breyttu verði og myndum og fylgstu með sölu og útborgunum. Þú getur líka falið seldar vörur af listanum.",
+    "examples": [
+      "Hvað hef ég selt fyrir mikið í básnum í vikunni?",
+      "Lækkaðu verðið á vetrargallanum í 3.000 kr.",
+      "Feldu vörurnar sem hafa selst."
+    ]
+  }
+}
