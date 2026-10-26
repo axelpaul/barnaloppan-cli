@@ -13,7 +13,8 @@
     "typecheck": "bunx tsc --noEmit",
     "lint": "bunx biome check src/",
     "check": "bun run lint && bun run typecheck && bun run test",
-    "test": "bun test"
+    "test": "bun test",
+    "verify:mcp": "bun scripts/verify-mcp.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.9",
