@@ -1,5 +1,7 @@
 # Barnaloppan CLI
 
+[MCP setup and client configuration](MCP.md)
+
 Public Bun CLI for Barnaloppan booth inventory. The site has no public
 API; this uses its ordinary login form and the authenticated browser flow.
 Only the session cookie is stored, at
