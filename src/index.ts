@@ -110,7 +110,7 @@ async function resolveCredentials(): Promise<ResolvedCredentials> {
 }
 
 async function main(): Promise<void> {
-	const command = positional[0];
+	const command = has("--version") ? "version" : positional[0];
 	if (has("--help") || !command || command === "help") return help();
 	if (command === "version") return output({ version: "0.1.0" }, json);
 	if (command === "serve") {
